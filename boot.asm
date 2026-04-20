@@ -12,6 +12,12 @@ start:
     mov al, 0x03
     int 0x10
 
+    mov ah, 0x02
+    mov bh, 0x00
+    mov dh, 6
+    mov dl, 0
+    int 0x10
+
     mov si, logo
     call print16
 
@@ -27,18 +33,34 @@ start:
     pop cx
     loop .barra
 
-    ; carrega kernel do disco
     mov ah, 0x02
-    mov al, 15
+    mov bh, 0x00
+    mov dh, 18
+    mov dl, 18
+    int 0x10
+
+    mov si, msg_enter
+    call print16
+
+.aguarda:
+    mov ah, 0x00
+    int 0x16
+    cmp al, 0x0D
+    jne .aguarda
+
+    ; carrega kernel
+    mov ax, 0x0800
+    mov es, ax
+    mov bx, 0x0000
+    mov ah, 0x02
+    mov al, 20
     mov ch, 0
     mov cl, 2
     mov dh, 0
-    mov bx, 0x1000
-    mov es, bx
-    mov bx, 0
+    mov dl, 0x80
     int 0x13
 
-    ; entra em modo protegido
+    ; modo protegido
     cli
     lgdt [gdt_desc]
     mov eax, cr0
@@ -53,7 +75,7 @@ protected:
     mov es, ax
     mov ss, ax
     mov esp, 0x90000
-    jmp 0x1000
+    jmp 0x8000
 
 print16:
     lodsb
@@ -66,7 +88,6 @@ print16:
     ret
 
 logo:
-    db 13, 10, 13, 10, 13, 10, 13, 10, 13, 10, 13, 10, 13, 10, 13, 10
     db "                 _   _   _   _     _    ___    ___ ", 13, 10
     db "                | | | | | | | |_  (_)  / _ \  / __|", 13, 10
     db "                | |_| | | | |  _| | | | (_) | \__ \", 13, 10
@@ -75,6 +96,9 @@ logo:
     db "                ====================================", 13, 10
     db 13, 10
     db "                ", 0
+
+msg_enter:
+    db "pressione enter para iniciar...", 0
 
 gdt:
     dq 0
