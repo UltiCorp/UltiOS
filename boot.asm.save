@@ -1,0 +1,61 @@
+[BITS 16]
+[ORG 0x7C00]
+
+start:
+    ; configura segmentos
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0x7C00
+
+    ; limpa a tela
+    mov ah, 0x00
+    mov al, 0x03
+    int 0x10
+
+    ; exibe logo
+    mov si, logo
+    call print
+
+    ; barra de carregamento
+    mov si, loading_label
+    call print
+    mov cx, 20
+.barra:
+    push cx
+    mov ah, 0x0E
+    mov al, 0xDB
+    int 0x10
+    mov cx, 30000
+.delay:
+    loop .delay
+    pop cx
+    loop .barra
+
+    mov si, done_msg
+    call print
+
+    cli
+    hlt
+
+print:
+    lodsb
+    or al, al
+    jz .fim
+    mov ah, 0x0E
+    int 0x10
+    jmp print
+.fim:
+    ret
+
+
+
+loading_label:
+    db "  Carregando: ", 0
+
+done_msg:
+    db 13, 10, " OK!", 13, 10, 0
+
+times 510-($-$$) db 0
+dw 0xAA55
