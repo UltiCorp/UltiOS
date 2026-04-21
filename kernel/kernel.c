@@ -80,16 +80,14 @@ void itoa(int n, char* buf) {
 
 int calc(const char* expr) {
     int i = 0;
-    int a = 0;
-    int neg = 0;
+    int a = 0, neg = 0;
     if (expr[i] == '-') { neg = 1; i++; }
     while (is_digit(expr[i])) { a = a * 10 + (expr[i] - '0'); i++; }
     if (neg) a = -a;
     while (expr[i] == ' ') i++;
     char op = expr[i++];
     while (expr[i] == ' ') i++;
-    int b = 0;
-    int neg2 = 0;
+    int b = 0, neg2 = 0;
     if (expr[i] == '-') { neg2 = 1; i++; }
     while (is_digit(expr[i])) { b = b * 10 + (expr[i] - '0'); i++; }
     if (neg2) b = -b;
@@ -100,18 +98,116 @@ int calc(const char* expr) {
     return 0;
 }
 
-unsigned int get_ticks() {
-    unsigned int lo, hi;
-    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
-    return lo;
+// IDT
+struct idt_entry {
+    unsigned short base_lo;
+    unsigned short sel;
+    unsigned char  zero;
+    unsigned char  flags;
+    unsigned short base_hi;
+} __attribute__((packed));
+
+struct idt_ptr {
+    unsigned short limit;
+    unsigned int   base;
+} __attribute__((packed));
+
+struct idt_entry idt[256];
+struct idt_ptr   idtp;
+
+extern void idt_load(struct idt_ptr*);
+extern void timer_handler();
+
+void idt_set_gate(int n, unsigned int base) {
+    idt[n].base_lo = base & 0xFFFF;
+    idt[n].base_hi = (base >> 16) & 0xFFFF;
+    idt[n].sel     = 0x08;
+    idt[n].zero    = 0;
+    idt[n].flags   = 0x8E;
 }
 
-unsigned int boot_ticks = 0;
+void idt_init() {
+    idtp.limit = (sizeof(struct idt_entry) * 256) - 1;
+    idtp.base  = (unsigned int)&idt;
 
-unsigned int get_seconds() {
-    unsigned int now = get_ticks();
-    unsigned int diff = now - boot_ticks;
-    return diff / 400000000;
+    for (int i = 0; i < 256; i++) {
+        idt[i].base_lo = 0;
+        idt[i].base_hi = 0;
+        idt[i].sel     = 0;
+        idt[i].zero    = 0;
+        idt[i].flags   = 0;
+    }
+
+    // remapeia PIC
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x11), "Nd"((unsigned short)0x20));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x11), "Nd"((unsigned short)0xA0));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x20), "Nd"((unsigned short)0x21));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x28), "Nd"((unsigned short)0xA1));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x04), "Nd"((unsigned short)0x21));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x02), "Nd"((unsigned short)0xA1));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x01), "Nd"((unsigned short)0x21));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x01), "Nd"((unsigned short)0xA1));
+    // mascara todas exceto IRQ0 (timer)
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0xFE), "Nd"((unsigned short)0x21));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0xFF), "Nd"((unsigned short)0xA1));
+
+    idt_set_gate(32, (unsigned int)timer_handler);
+    idt_load(&idtp);
+    __asm__ volatile ("sti");
+}
+
+// PIT
+volatile unsigned int pit_ticks = 0;
+
+void pit_tick() {
+    pit_ticks++;
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x20), "Nd"((unsigned short)0x20));
+}
+
+void pit_init() {
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x36), "Nd"((unsigned short)0x43));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)(11932 & 0xFF)), "Nd"((unsigned short)0x40));
+    __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)(11932 >> 8)), "Nd"((unsigned short)0x40));
+}
+
+unsigned int get_uptime_seconds() {
+    return pit_ticks / 100;
+}
+
+void format_uptime(unsigned int secs, char* out) {
+    unsigned int d = secs / 86400;
+    secs %= 86400;
+    unsigned int h = secs / 3600;
+    secs %= 3600;
+    unsigned int m = secs / 60;
+    unsigned int s = secs % 60;
+
+    int i = 0;
+    char tmp[10];
+
+    if (d > 0) {
+        itoa(d, tmp);
+        int j = 0;
+        while (tmp[j]) out[i++] = tmp[j++];
+        out[i++] = 'd'; out[i++] = ' ';
+    }
+    if (h > 0 || d > 0) {
+        itoa(h, tmp);
+        int j = 0;
+        while (tmp[j]) out[i++] = tmp[j++];
+        out[i++] = 'h'; out[i++] = ' ';
+    }
+    if (m > 0 || h > 0 || d > 0) {
+        itoa(m, tmp);
+        int j = 0;
+        while (tmp[j]) out[i++] = tmp[j++];
+        out[i++] = 'm'; out[i++] = ' ';
+    }
+    itoa(s, tmp);
+    int j = 0;
+    while (tmp[j]) out[i++] = tmp[j++];
+    out[i++] = 's';
+    out[i] = 0;
 }
 
 void clear_line(int row) {
@@ -200,7 +296,7 @@ int execute(char* cmd, int row) {
         return 1;
     } else if (strcmp(cmd, "version") == 0) {
         print_at("UltiOS v0.0.2", row, 0, make_color(0x0B, bg_color));
-        return 3;
+        return 1;
     } else if (strcmp(cmd, "about") == 0) {
         print_at("  UltiOS", row, 0, make_color(0x0B, bg_color));
         print_at("  -------", row + 1, 0, make_color(0x07, bg_color));
@@ -208,36 +304,38 @@ int execute(char* cmd, int row) {
         print_at("  Marcos Ulti [DEV]", row + 3, 0, make_color(0x0F, bg_color));
         return 5;
     } else if (strcmp(cmd, "time") == 0) {
-        char buf[20];
-        itoa(get_seconds(), buf);
-        char out[40];
+        char uptime[40];
+        char out[50];
+        format_uptime(get_uptime_seconds(), uptime);
         int i = 0, j = 0;
         char prefix[] = "uptime: ";
         while (prefix[j]) out[i++] = prefix[j++];
         j = 0;
-        while (buf[j]) out[i++] = buf[j++];
-        char suffix[] = "s";
-        j = 0;
-        while (suffix[j]) out[i++] = suffix[j++];
+        while (uptime[j]) out[i++] = uptime[j++];
         out[i] = 0;
         print_at(out, row, 0, make_color(0x0E, bg_color));
         return 1;
     } else if (strcmp(cmd, "reboot") == 0) {
         reboot();
         return 1;
+    } else if (strcmp(cmd, "color reset") == 0) {
+        fg_color = 0x0F;
+        bg_color = 0x00;
+        cls();
+        return 2;
     } else if (strncmp(cmd, "color ", 6) == 0) {
         char type = cmd[6];
         char val  = cmd[8];
         if (type == 'f') {
             unsigned char c = parse_color(val);
             if (c != 0xFF) fg_color = c;
-            else print_at("uso: color f <cor> | color b <cor>", row, 0, make_color(0x0C, bg_color));
+            else print_at("uso: color f/b <cor> | color reset", row, 0, make_color(0x0C, bg_color));
         } else if (type == 'b') {
             unsigned char c = parse_color(val);
             if (c != 0xFF) { bg_color = c & 0x07; cls(); }
-            else print_at("uso: color f <cor> | color b <cor>", row, 0, make_color(0x0C, bg_color));
+            else print_at("uso: color f/b <cor> | color reset", row, 0, make_color(0x0C, bg_color));
         } else {
-            print_at("uso: color f <cor> | color b <cor>", row, 0, make_color(0x0C, bg_color));
+            print_at("uso: color f/b <cor> | color reset", row, 0, make_color(0x0C, bg_color));
         }
         return 1;
     } else if (strncmp(cmd, "calc ", 5) == 0) {
@@ -250,7 +348,7 @@ int execute(char* cmd, int row) {
         print_at("pong", row, 0, make_color(0x0A, bg_color));
         return 1;
     } else if (strcmp(cmd, "help") == 0) {
-        print_at("ping  echo  version  calc  color  time  reboot  clear", row, 0, make_color(0x0B, bg_color));
+        print_at("ping  echo  version  about  calc  color  time  reboot  clear", row, 0, make_color(0x0B, bg_color));
         return 1;
     } else if (strcmp(cmd, "clear") == 0) {
         cls();
@@ -265,7 +363,8 @@ int execute(char* cmd, int row) {
 #define HIST_SIZE 8
 
 void kernel_main() {
-    boot_ticks = get_ticks();
+    pit_init();
+    idt_init();
     cls();
 
     int row = 0;
@@ -358,12 +457,12 @@ void kernel_main() {
                 row += 5;
                 if (row >= 25) { cls(); row = 0; }
             } else if (result == 3) {
-                row += 2;
+                row += 3;
                 if (row >= 25) { cls(); row = 0; }
             } else {
                 row += 2;
                 if (row >= 25) { cls(); row = 0; }
-            } 
+            }
 
             print_prompt(row);
             col = 9;
