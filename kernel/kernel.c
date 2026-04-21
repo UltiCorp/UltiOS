@@ -98,7 +98,6 @@ int calc(const char* expr) {
     return 0;
 }
 
-// IDT
 struct idt_entry {
     unsigned short base_lo;
     unsigned short sel;
@@ -129,7 +128,6 @@ void idt_set_gate(int n, unsigned int base) {
 void idt_init() {
     idtp.limit = (sizeof(struct idt_entry) * 256) - 1;
     idtp.base  = (unsigned int)&idt;
-
     for (int i = 0; i < 256; i++) {
         idt[i].base_lo = 0;
         idt[i].base_hi = 0;
@@ -137,8 +135,6 @@ void idt_init() {
         idt[i].zero    = 0;
         idt[i].flags   = 0;
     }
-
-    // remapeia PIC
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x11), "Nd"((unsigned short)0x20));
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x11), "Nd"((unsigned short)0xA0));
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x20), "Nd"((unsigned short)0x21));
@@ -147,16 +143,13 @@ void idt_init() {
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x02), "Nd"((unsigned short)0xA1));
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x01), "Nd"((unsigned short)0x21));
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0x01), "Nd"((unsigned short)0xA1));
-    // mascara todas exceto IRQ0 (timer)
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0xFE), "Nd"((unsigned short)0x21));
     __asm__ volatile ("outb %0, %1" :: "a"((unsigned char)0xFF), "Nd"((unsigned short)0xA1));
-
     idt_set_gate(32, (unsigned int)timer_handler);
     idt_load(&idtp);
     __asm__ volatile ("sti");
 }
 
-// PIT
 volatile unsigned int pit_ticks = 0;
 
 void pit_tick() {
@@ -181,33 +174,26 @@ void format_uptime(unsigned int secs, char* out) {
     secs %= 3600;
     unsigned int m = secs / 60;
     unsigned int s = secs % 60;
-
     int i = 0;
     char tmp[10];
-
     if (d > 0) {
-        itoa(d, tmp);
-        int j = 0;
+        itoa(d, tmp); int j = 0;
         while (tmp[j]) out[i++] = tmp[j++];
         out[i++] = 'd'; out[i++] = ' ';
     }
     if (h > 0 || d > 0) {
-        itoa(h, tmp);
-        int j = 0;
+        itoa(h, tmp); int j = 0;
         while (tmp[j]) out[i++] = tmp[j++];
         out[i++] = 'h'; out[i++] = ' ';
     }
     if (m > 0 || h > 0 || d > 0) {
-        itoa(m, tmp);
-        int j = 0;
+        itoa(m, tmp); int j = 0;
         while (tmp[j]) out[i++] = tmp[j++];
         out[i++] = 'm'; out[i++] = ' ';
     }
-    itoa(s, tmp);
-    int j = 0;
+    itoa(s, tmp); int j = 0;
     while (tmp[j]) out[i++] = tmp[j++];
-    out[i++] = 's';
-    out[i] = 0;
+    out[i++] = 's'; out[i] = 0;
 }
 
 void clear_line(int row) {
@@ -256,63 +242,61 @@ char scancode_to_char(unsigned char sc, int shift) {
 }
 
 void print_prompt(int row) {
-    unsigned char color = make_color(fg_color, bg_color);
-    print_at("UltiCMD > ", row, 0, color);
+    print_at("UltiCMD > ", row, 0, make_color(fg_color, bg_color));
 }
 
 unsigned char parse_color(char c) {
-    if (c == 'r') return 0x04;
-    if (c == 'R') return 0x0C;
-    if (c == 'g') return 0x02;
-    if (c == 'G') return 0x0A;
-    if (c == 'b') return 0x01;
-    if (c == 'B') return 0x09;
-    if (c == 'y') return 0x06;
-    if (c == 'Y') return 0x0E;
-    if (c == 'w') return 0x07;
-    if (c == 'W') return 0x0F;
-    if (c == 'p') return 0x05;
-    if (c == 'P') return 0x0D;
+    if (c == 'r') return 0x04; if (c == 'R') return 0x0C;
+    if (c == 'g') return 0x02; if (c == 'G') return 0x0A;
+    if (c == 'b') return 0x01; if (c == 'B') return 0x09;
+    if (c == 'y') return 0x06; if (c == 'Y') return 0x0E;
+    if (c == 'w') return 0x07; if (c == 'W') return 0x0F;
+    if (c == 'p') return 0x05; if (c == 'P') return 0x0D;
     if (c == 'k') return 0x00;
     return 0xFF;
 }
 
 void reboot() {
-    __asm__ volatile (
-        "mov $0xFE, %al\n"
-        "outb %al, $0x64\n"
-    );
+    __asm__ volatile ("mov $0xFE, %al\n outb %al, $0x64\n");
+}
+
+void concat(char* out, const char* a, const char* b) {
+    int i = 0, j = 0;
+    while (a[i]) out[j++] = a[i++];
+    i = 0;
+    while (b[i]) out[j++] = b[i++];
+    out[j] = 0;
 }
 
 int execute(char* cmd, int row) {
     clear_line(row);
     clear_line(row + 1);
-    unsigned char color = make_color(fg_color, bg_color);
+    clear_line(row + 2);
+    clear_line(row + 3);
 
     if (strncmp(cmd, "echo ", 5) == 0) {
-        print_at(cmd + 5, row, 0, color);
+        print_at(cmd + 5, row, 0, make_color(fg_color, bg_color));
         return 1;
     } else if (strcmp(cmd, "echo") == 0) {
         return 1;
     } else if (strcmp(cmd, "version") == 0) {
-        print_at("UltiOS v0.0.2", row, 0, make_color(0x0B, bg_color));
+        print_at("UltiOS v0.1.0", row, 0, make_color(0x0B, bg_color));
         return 1;
     } else if (strcmp(cmd, "about") == 0) {
-        print_at("  UltiOS", row, 0, make_color(0x0B, bg_color));
-        print_at("  -------", row + 1, 0, make_color(0x07, bg_color));
-        print_at("  Versao : v0.0.2", row + 2, 0, make_color(0x0F, bg_color));
-        print_at("  Marcos Ulti [DEV]", row + 3, 0, make_color(0x0F, bg_color));
+        char uptime[40];
+        format_uptime(get_uptime_seconds(), uptime);
+        char upline[60];
+        concat(upline, "Uptime : ", uptime);
+        print_at("UltiOS - Marcos Ulti [DEV]", row,     0, make_color(0x0B, bg_color));
+        print_at("----------------------------",         row + 1, 0, make_color(0x07, bg_color));
+        print_at("Versao : v0.1.0",                     row + 2, 0, make_color(0x0F, bg_color));
+        print_at(upline,                                 row + 3, 0, make_color(0x0E, bg_color));
         return 5;
     } else if (strcmp(cmd, "time") == 0) {
         char uptime[40];
         char out[50];
         format_uptime(get_uptime_seconds(), uptime);
-        int i = 0, j = 0;
-        char prefix[] = "uptime: ";
-        while (prefix[j]) out[i++] = prefix[j++];
-        j = 0;
-        while (uptime[j]) out[i++] = uptime[j++];
-        out[i] = 0;
+        concat(out, "uptime: ", uptime);
         print_at(out, row, 0, make_color(0x0E, bg_color));
         return 1;
     } else if (strcmp(cmd, "reboot") == 0) {
@@ -347,10 +331,39 @@ int execute(char* cmd, int row) {
     } else if (strcmp(cmd, "ping") == 0) {
         print_at("pong", row, 0, make_color(0x0A, bg_color));
         return 1;
+    } else if (strncmp(cmd, "help ", 5) == 0) {
+        char* topic = cmd + 5;
+        if (strcmp(topic, "color") == 0) {
+            print_at("color f <cor>  -- muda cor do texto", row,     0, make_color(0x0B, bg_color));
+            print_at("color b <cor>  -- muda cor do fundo", row + 1, 0, make_color(0x0B, bg_color));
+            print_at("color reset    -- volta ao padrao",   row + 2, 0, make_color(0x0B, bg_color));
+            print_at("cores: r R g G b B y Y w W p P k",   row + 3, 0, make_color(0x07, bg_color));
+            return 5;
+        } else if (strcmp(topic, "calc") == 0) {
+            print_at("calc <expr>  -- ex: calc 2 + 2",     row,     0, make_color(0x0B, bg_color));
+            print_at("operadores: + - * /",                row + 1, 0, make_color(0x07, bg_color));
+            return 3;
+        } else if (strcmp(topic, "echo") == 0) {
+            print_at("echo <texto>  -- imprime texto",      row, 0, make_color(0x0B, bg_color));
+            return 1;
+        } else if (strcmp(topic, "color reset") == 0 || strcmp(topic, "ping") == 0 ||
+                   strcmp(topic, "clear") == 0 || strcmp(topic, "cls") == 0) {
+            print_at("sem parametros adicionais",           row, 0, make_color(0x0B, bg_color));
+            return 1;
+        } else if (strcmp(topic, "time") == 0 || strcmp(topic, "about") == 0 || strcmp(topic, "version") == 0) {
+            print_at("sem parametros adicionais",           row, 0, make_color(0x0B, bg_color));
+            return 1;
+        } else if (strcmp(topic, "reboot") == 0) {
+            print_at("reinicia o sistema",                  row, 0, make_color(0x0B, bg_color));
+            return 1;
+        } else {
+            print_at("comando desconhecido",                row, 0, make_color(0x0C, bg_color));
+            return 1;
+        }
     } else if (strcmp(cmd, "help") == 0) {
-        print_at("ping  echo  version  about  calc  color  time  reboot  clear", row, 0, make_color(0x0B, bg_color));
+        print_at("ping  echo  version  about  calc  color  time  reboot  clear  cls", row, 0, make_color(0x0B, bg_color));
         return 1;
-    } else if (strcmp(cmd, "clear") == 0) {
+    } else if (strcmp(cmd, "clear") == 0 || strcmp(cmd, "cls") == 0) {
         cls();
         return 2;
     } else {
