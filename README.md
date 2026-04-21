@@ -45,7 +45,7 @@ This is a learning/portfolio project, not a production OS.
 
 | Boot | Shell |
 |------|-------|
-| ![Boot](assets/boot.PNG) | ![Shell](assets/os.png) |
+| ![Boot](assets/boot.PNG) | ![Shell](assets/os.PNG) |
 
 ### UltiCMD Commands
 
