@@ -196,6 +196,23 @@ void format_uptime(unsigned int secs, char* out) {
     out[i++] = 's'; out[i] = 0;
 }
 
+void scroll() {
+    unsigned char color = make_color(fg_color, bg_color);
+    for (int row = 0; row < 24; row++) {
+        for (int col = 0; col < WIDTH; col++) {
+            int dst = (row * WIDTH + col) * 2;
+            int src = ((row + 1) * WIDTH + col) * 2;
+            VGA[dst]   = VGA[src];
+            VGA[dst+1] = VGA[src+1];
+        }
+    }
+    for (int col = 0; col < WIDTH; col++) {
+        int pos = (24 * WIDTH + col) * 2;
+        VGA[pos]   = ' ';
+        VGA[pos+1] = color;
+    }
+}
+
 void clear_line(int row) {
     unsigned char color = make_color(fg_color, bg_color);
     for (int i = 0; i < WIDTH; i++) {
@@ -460,6 +477,13 @@ void kernel_main() {
             }
             hist_pos = -1;
 
+            // garante espaco pra resposta
+            if (row + 4 >= 25) {
+                int needed = (row + 4) - 24;
+                for (int s = 0; s < needed; s++) scroll();
+                row -= needed;
+            }
+
             int result = execute(buf, row + 1);
             for (int i = 0; i < 70; i++) buf[i] = 0;
             buf_i = 0;
@@ -468,13 +492,13 @@ void kernel_main() {
                 row = 0;
             } else if (result == 5) {
                 row += 5;
-                if (row >= 25) { cls(); row = 0; }
+                if (row >= 25) { scroll(); row = 24; }
             } else if (result == 3) {
                 row += 3;
-                if (row >= 25) { cls(); row = 0; }
+                if (row >= 25) { scroll(); row = 24; }
             } else {
                 row += 2;
-                if (row >= 25) { cls(); row = 0; }
+                if (row >= 25) { scroll(); row = 24; }
             }
 
             print_prompt(row);
